@@ -24,6 +24,8 @@ import (
 	"sync"
 )
 
+// 编码器
+
 var (
 	// Common encoded values.
 	// These are useful when implementing EncodeRLP.

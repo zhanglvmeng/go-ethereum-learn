@@ -117,15 +117,18 @@ type CacheConfig struct {
 // important to note that GetBlock can return any block and does not need to be
 // included in the canonical one where as GetBlockByNumber always represents the
 // canonical chain.
+// 维护整个区块链的状态，包括区块的验证、插入、状态查询等。
 type BlockChain struct {
 	chainConfig *params.ChainConfig // Chain & network configuration
 	cacheConfig *CacheConfig        // Cache configuration for pruning
 
 	db     ethdb.Database // Low level persistent database to store final content in
+	// todo zpAsk6
 	triegc *prque.Prque   // Priority queue mapping block numbers to tries to gc
 	gcproc time.Duration  // Accumulates canonical block processing for trie dumping
 
 	hc            *HeaderChain
+	// 下面几个涉及到消息通知的组件 todo zpAsk7
 	rmLogsFeed    event.Feed
 	chainFeed     event.Feed
 	chainSideFeed event.Feed
@@ -133,11 +136,12 @@ type BlockChain struct {
 	logsFeed      event.Feed
 	blockProcFeed event.Feed
 	scope         event.SubscriptionScope
+
 	genesisBlock  *types.Block
 
 	chainmu sync.RWMutex // blockchain insertion lock
 
-	checkpoint       int          // checkpoint counts towards the new checkpoint
+	checkpoint       int          // checkpoint counts towards the new checkpoint todo zpAsk8
 	currentBlock     atomic.Value // Current head of the block chain
 	currentFastBlock atomic.Value // Current head of the fast-sync chain (may be above the block chain!)
 
@@ -154,7 +158,7 @@ type BlockChain struct {
 	procInterrupt int32          // interrupt signaler for block processing
 	wg            sync.WaitGroup // chain processing wait group for shutting down
 
-	engine     consensus.Engine
+	engine     consensus.Engine // 共识引擎
 	validator  Validator  // Block and state validator interface
 	prefetcher Prefetcher // Block state prefetcher interface
 	processor  Processor  // Block transaction processor interface

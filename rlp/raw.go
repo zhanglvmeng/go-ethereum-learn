@@ -16,6 +16,8 @@
 
 package rlp
 
+// // 未解码的原始rlp数据
+
 import (
 	"io"
 	"reflect"

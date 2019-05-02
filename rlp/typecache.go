@@ -16,6 +16,8 @@
 
 package rlp
 
+// 类型缓存， 类型缓存记录了 类型-> (编码器 | 解码器)的内容。
+
 import (
 	"fmt"
 	"reflect"

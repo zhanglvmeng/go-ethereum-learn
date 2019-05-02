@@ -68,21 +68,21 @@ func (n *BlockNonce) UnmarshalText(input []byte) error {
 
 // Header represents a block header in the Ethereum blockchain.
 type Header struct {
-	ParentHash  common.Hash    `json:"parentHash"       gencodec:"required"`
-	UncleHash   common.Hash    `json:"sha3Uncles"       gencodec:"required"`
-	Coinbase    common.Address `json:"miner"            gencodec:"required"`
-	Root        common.Hash    `json:"stateRoot"        gencodec:"required"`
-	TxHash      common.Hash    `json:"transactionsRoot" gencodec:"required"`
-	ReceiptHash common.Hash    `json:"receiptsRoot"     gencodec:"required"`
-	Bloom       Bloom          `json:"logsBloom"        gencodec:"required"`
-	Difficulty  *big.Int       `json:"difficulty"       gencodec:"required"`
-	Number      *big.Int       `json:"number"           gencodec:"required"`
-	GasLimit    uint64         `json:"gasLimit"         gencodec:"required"`
-	GasUsed     uint64         `json:"gasUsed"          gencodec:"required"`
-	Time        uint64         `json:"timestamp"        gencodec:"required"`
-	Extra       []byte         `json:"extraData"        gencodec:"required"`
-	MixDigest   common.Hash    `json:"mixHash"`
-	Nonce       BlockNonce     `json:"nonce"`
+	ParentHash  common.Hash    `json:"parentHash"       gencodec:"required"` // 父区块的hash
+	UncleHash   common.Hash    `json:"sha3Uncles"       gencodec:"required"` // 当前区块的uncle 链的hash
+	Coinbase    common.Address `json:"miner"            gencodec:"required"` // 矿工地址
+	Root        common.Hash    `json:"stateRoot"        gencodec:"required"` // 交易字典树根节点hash
+	TxHash      common.Hash    `json:"transactionsRoot" gencodec:"required"` // 交易hash
+	ReceiptHash common.Hash    `json:"receiptsRoot"     gencodec:"required"` // 接收方的字典树根节点hash
+	Bloom       Bloom          `json:"logsBloom"        gencodec:"required"` // todo zpAsk4
+	Difficulty  *big.Int       `json:"difficulty"       gencodec:"required"` // 当前区块工作量证明（PoW）算法的复杂度，表示当前区块的难度水平，这一个值根据前一个区块的难度水平和时间戳计算得到；
+	Number      *big.Int       `json:"number"           gencodec:"required"` // 区块体中的交易数目
+	GasLimit    uint64         `json:"gasLimit"         gencodec:"required"` // 当前区块的Gas 消耗上限
+	GasUsed     uint64         `json:"gasUsed"          gencodec:"required"` // 当前区块的所有交易使用Gas之和
+	Time        uint64         `json:"timestamp"        gencodec:"required"` // 区块初始化时的时间戳
+	Extra       []byte         `json:"extraData"        gencodec:"required"` // 额外的信息
+	MixDigest   common.Hash    `json:"mixHash"` // 签名
+	Nonce       BlockNonce     `json:"nonce"` // pow 中使用的随机数
 }
 
 // field type overrides for gencodec
@@ -126,22 +126,22 @@ type Body struct {
 
 // Block represents an entire block in the Ethereum blockchain.
 type Block struct {
-	header       *Header
-	uncles       []*Header
-	transactions Transactions
+	header       *Header // 区块头
+	uncles       []*Header // uncles 链表头  // todo zpAsk3
+	transactions Transactions // 交易列表，一个transaction的slice
 
 	// caches
-	hash atomic.Value
+	hash atomic.Value // todo zpAsk1
 	size atomic.Value
 
 	// Td is used by package core to store the total difficulty
 	// of the chain up to and including the block.
-	td *big.Int
+	td *big.Int // 区块的总体复杂度
 
 	// These fields are used by package eth to track
 	// inter-peer block relay.
-	ReceivedAt   time.Time
-	ReceivedFrom interface{}
+	ReceivedAt   time.Time  // 接收块的时间  // todo zpAsk2
+	ReceivedFrom interface{} // 这个应该是从哪儿接收的。
 }
 
 // DeprecatedTd is an old relic for extracting the TD of a block. It is in the
@@ -180,9 +180,12 @@ type storageblock struct {
 // The values of TxHash, UncleHash, ReceiptHash and Bloom in header
 // are ignored and set to values derived from the given txs, uncles
 // and receipts.
+// TxHash UncleHash ReceiptHash Bloom 是根据txs, uncles receipts 自动生成的，而不是由参数设定的。
 func NewBlock(header *Header, txs []*Transaction, uncles []*Header, receipts []*Receipt) *Block {
+	// 首先创建一个区块。
 	b := &Block{header: CopyHeader(header), td: new(big.Int)}
 
+	// 根据传入的tx参数，生成TxHash, ReceiptHash， Bloom , Uncle 参数。
 	// TODO: panic if len(txs) != len(receipts)
 	if len(txs) == 0 {
 		b.header.TxHash = EmptyRootHash

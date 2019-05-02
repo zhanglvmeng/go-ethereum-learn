@@ -25,6 +25,8 @@ floats) is left up to higher-order protocols; in Ethereum integers
 must be represented in big endian binary form with no leading zeroes
 (thus making the integer value zero equivalent to the empty byte
 array).
+Rlp 用来编码结构体，像string int float。
+以太坊中 整数以大端且没有前缀零的格式存储。 所以整数0 就是一个空数组。
 
 RLP values are distinguished by a type tag. The type tag precedes the
 value in the input stream and defines the size and kind of the bytes

@@ -61,7 +61,7 @@ func New(eth Backend, config *params.ChainConfig, mux *event.TypeMux, engine con
 		worker:   newWorker(config, engine, eth, mux, recommit, gasFloor, gasCeil, isLocalBlock),
 		canStart: 1,
 	}
-	go miner.update()
+	go miner.update() // 启动miner 协程
 
 	return miner
 }

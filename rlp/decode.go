@@ -15,6 +15,7 @@
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
 package rlp
+// 解码器， 把rlp数据解码为go的数据结构
 
 import (
 	"bufio"

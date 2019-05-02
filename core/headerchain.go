@@ -47,11 +47,13 @@ const (
 // a part of either structure.
 // It is not thread safe either, the encapsulating chain structures should do
 // the necessary mutex locking/unlocking.
+// 管理所有的Header 形成一个单向链表。
+// todo zpAsk9
 type HeaderChain struct {
 	config *params.ChainConfig
 
-	chainDb       ethdb.Database
-	genesisHeader *types.Header
+	chainDb       ethdb.Database // 将区块信息写入本地的leveldb实例。
+	genesisHeader *types.Header // 创世区块头
 
 	currentHeader     atomic.Value // Current head of the header chain (may be above the block chain!)
 	currentHeaderHash common.Hash  // Hash of the current head of the header chain (prevent recomputing all the time)
