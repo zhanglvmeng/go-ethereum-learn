@@ -26,10 +26,11 @@ import (
 )
 
 var (
-	typeCacheMutex sync.RWMutex
+	typeCacheMutex sync.RWMutex // 读写锁，用来在多线程时保护typeCache这个map
 	typeCache      = make(map[typekey]*typeinfo)
 )
 
+// 通过自身的类型快速找到自己的编码器函数和解码器函数。
 type typeinfo struct {
 	decoder
 	writer
@@ -82,6 +83,7 @@ func cachedTypeInfo1(typ reflect.Type, tags tags) (*typeinfo, error) {
 	// if the generator tries to lookup itself, it will get
 	// the dummy value and won't call itself recursively.
 	typeCache[key] = new(typeinfo)
+	// 获取各种类型的编码器和解码器。
 	info, err := genTypeInfo(typ, tags)
 	if err != nil {
 		// remove the dummy value if the generator fails
@@ -144,9 +146,11 @@ func parseStructTag(typ reflect.Type, fi int) (tags, error) {
 
 func genTypeInfo(typ reflect.Type, tags tags) (info *typeinfo, err error) {
 	info = new(typeinfo)
+	// 这儿定义了各种类型的解码器。
 	if info.decoder, err = makeDecoder(typ, tags); err != nil {
 		return nil, err
 	}
+	// 这儿定义了各种类型的编码器。
 	if info.writer, err = makeWriter(typ, tags); err != nil {
 		return nil, err
 	}

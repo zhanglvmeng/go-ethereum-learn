@@ -35,6 +35,7 @@ var (
 
 // Encoder is implemented by types that require custom
 // encoding rules or want to encode private fields.
+// 这是核心： 被需要编码的各种类型进行实现。
 type Encoder interface {
 	// EncodeRLP should write the RLP encoding of its receiver to w.
 	// If the implementation is a pointer method, it may also be
@@ -79,13 +80,14 @@ type Encoder interface {
 //
 // Boolean values are not supported, nor are signed integers, floating
 // point numbers, maps, channels and functions.
+// 大部分实现了EncodeRLP的类型都实现了Encode方法。 这个方法首先获取了一个encbuf对象，然后调用这个对象的encode方法。
 func Encode(w io.Writer, val interface{}) error {
 	if outer, ok := w.(*encbuf); ok {
 		// Encode was called by some type's EncodeRLP.
 		// Avoid copying by writing to the outer encbuf directly.
 		return outer.encode(val)
 	}
-	eb := encbufPool.Get().(*encbuf)
+	eb := encbufPool.Get().(*encbuf) // 顾名思义，encbufPool 是encbuf的Pool. 获取encbuf 对象，如果获取不到则放一个进去，然后继续调用encode
 	defer encbufPool.Put(eb)
 	eb.reset()
 	if err := eb.encode(val); err != nil {
@@ -120,6 +122,7 @@ func EncodeToReader(val interface{}) (size int, r io.Reader, err error) {
 	return eb.size(), &encReader{buf: eb}, nil
 }
 
+// encodeBuffer
 type encbuf struct {
 	str     []byte      // string data, contains everything except list headers
 	lheads  []*listhead // all list headers
@@ -180,6 +183,7 @@ func (w *encbuf) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
+// encode 就是要从typecache中找到当前类型的编码器，然后执行编码器的writer
 func (w *encbuf) encode(val interface{}) error {
 	rval := reflect.ValueOf(val)
 	ti, err := cachedTypeInfo(rval.Type(), tags{})

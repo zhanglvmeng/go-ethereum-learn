@@ -880,6 +880,9 @@ func (s *Stream) Reset(r io.Reader, inputLimit uint64) {
 // reader and leave it positioned at the start of the actual bytes of
 // the value. Subsequent calls to Kind (until the value is decoded)
 // will not advance the input reader and return cached information.
+// 这个方法返回了一个输入流中字符的类型跟长度。
+// 这儿曾经有个疑问，输入一个字符流，如何确定用哪种类型解析？
+// 		其实就是这个kind方法，因为每种类型在编码的时候是有约定的。所以知道编码后的串，也能反推是哪种类型。
 func (s *Stream) Kind() (kind Kind, size uint64, err error) {
 	var tos *listpos
 	if len(s.stack) > 0 {
