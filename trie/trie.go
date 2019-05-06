@@ -60,18 +60,23 @@ func (t *Trie) newFlag() nodeFlag {
 // trie is initially empty and does not require a database. Otherwise,
 // New will panic if db is nil and returns a MissingNodeError if root does
 // not exist in the database. Accessing the trie loads nodes from db on demand.
+// 初始化一颗trie.
 func New(root common.Hash, db *Database) (*Trie, error) {
 	if db == nil {
 		panic("trie.New called without a database")
 	}
+	// 配置trie的db数据
 	trie := &Trie{
 		db: db,
 	}
+	// root 不空，则从db中加载trie树。
 	if root != (common.Hash{}) && root != emptyRoot {
+
 		rootnode, err := trie.resolveHash(root[:], nil)
 		if err != nil {
 			return nil, err
 		}
+		// 配置root
 		trie.root = rootnode
 	}
 	return trie, nil
@@ -105,17 +110,19 @@ func (t *Trie) TryGet(key []byte) ([]byte, error) {
 	return value, err
 }
 
+// get接口
 func (t *Trie) tryGet(origNode node, key []byte, pos int) (value []byte, newnode node, didResolve bool, err error) {
 	switch n := (origNode).(type) {
-	case nil:
+	case nil: // 空，失败。
 		return nil, nil, false, nil
-	case valueNode:
+	case valueNode: // value节点 失败。
 		return n, n, false, nil
-	case *shortNode:
+	case *shortNode: // shortNode
 		if len(key)-pos < len(n.Key) || !bytes.Equal(n.Key, key[pos:pos+len(n.Key)]) {
 			// key not found in trie
 			return nil, n, false, nil
 		}
+		// 递归
 		value, newnode, didResolve, err = t.tryGet(n.Val, key, pos+len(n.Key))
 		if err == nil && didResolve {
 			n = n.copy()
@@ -163,6 +170,7 @@ func (t *Trie) Update(key, value []byte) {
 // If a node was not found in the database, a MissingNodeError is returned.
 func (t *Trie) TryUpdate(key, value []byte) error {
 	k := keybytesToHex(key)
+	// update的操作： value不空，插入； value为空，则删除。
 	if len(value) != 0 {
 		_, n, err := t.insert(t.root, nil, k, valueNode(value))
 		if err != nil {
@@ -179,6 +187,7 @@ func (t *Trie) TryUpdate(key, value []byte) error {
 	return nil
 }
 
+// 插入。
 func (t *Trie) insert(n node, prefix, key []byte, value node) (bool, node, error) {
 	if len(key) == 0 {
 		if v, ok := n.(valueNode); ok {
@@ -187,8 +196,8 @@ func (t *Trie) insert(n node, prefix, key []byte, value node) (bool, node, error
 		return true, value, nil
 	}
 	switch n := n.(type) {
-	case *shortNode:
-		matchlen := prefixLen(key, n.Key)
+	case *shortNode: // 叶子节点
+		matchlen := prefixLen(key, n.Key) // 公共前缀的长度
 		// If the whole key matches, keep this short node as is
 		// and only update the value.
 		if matchlen == len(n.Key) {
@@ -198,9 +207,11 @@ func (t *Trie) insert(n node, prefix, key []byte, value node) (bool, node, error
 			}
 			return true, &shortNode{n.Key, nn, t.newFlag()}, nil
 		}
-		// Otherwise branch out at the index where they differ.
+		// Otherwise branch out at the index where they differ. 找出从什么地方开始没有公共前缀。
+		// 		（1）首先构建一个branch的分支节点。
 		branch := &fullNode{flags: t.newFlag()}
 		var err error
+		// 		（2）在branch 节点的children位置插入两个short节点
 		_, branch.Children[n.Key[matchlen]], err = t.insert(nil, append(prefix, n.Key[:matchlen+1]...), n.Key[matchlen+1:], n.Val)
 		if err != nil {
 			return false, nil, err
@@ -216,7 +227,7 @@ func (t *Trie) insert(n node, prefix, key []byte, value node) (bool, node, error
 		// Otherwise, replace it with a short node leading up to the branch.
 		return true, &shortNode{key[:matchlen], branch, t.newFlag()}, nil
 
-	case *fullNode:
+	case *fullNode: // 全节点
 		dirty, nn, err := t.insert(n.Children[key[0]], append(prefix, key[0]), key[1:], value)
 		if !dirty || err != nil {
 			return false, n, err
@@ -226,7 +237,7 @@ func (t *Trie) insert(n node, prefix, key []byte, value node) (bool, node, error
 		n.Children[key[0]] = nn
 		return true, n, nil
 
-	case nil:
+	case nil: // 此时树是空的，直接返回shortNode。
 		return true, &shortNode{key, value, t.newFlag()}, nil
 
 	case hashNode:
@@ -393,6 +404,7 @@ func (t *Trie) resolve(n node, prefix []byte) (node, error) {
 	return n, nil
 }
 
+// 从DB中加载trie树。
 func (t *Trie) resolveHash(n hashNode, prefix []byte) (node, error) {
 	hash := common.BytesToHash(n)
 	if node := t.db.node(hash); node != nil {
@@ -409,6 +421,7 @@ func (t *Trie) Hash() common.Hash {
 	return common.BytesToHash(hash.(hashNode))
 }
 
+// 将内存中的trie持久化到DB
 // Commit writes all nodes to the trie's memory database, tracking the internal
 // and external (for account tries) references.
 func (t *Trie) Commit(onleaf LeafCallback) (root common.Hash, err error) {

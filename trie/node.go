@@ -33,10 +33,14 @@ type node interface {
 }
 
 type (
+	// 分支节点
 	fullNode struct {
 		Children [17]node // Actual trie node data to encode/decode (needs custom encoder)
 		flags    nodeFlag
 	}
+	// 扩展节点和叶子节点：
+	// 叶子节点：val为valueNode
+	// 扩展节点：val执行下一个node.
 	shortNode struct {
 		Key   []byte
 		Val   node
@@ -84,6 +88,7 @@ func (n *shortNode) String() string { return n.fstring("") }
 func (n hashNode) String() string   { return n.fstring("") }
 func (n valueNode) String() string  { return n.fstring("") }
 
+// 打印分支节点内容。
 func (n *fullNode) fstring(ind string) string {
 	resp := fmt.Sprintf("[\n%s  ", ind)
 	for i, node := range &n.Children {
@@ -95,6 +100,8 @@ func (n *fullNode) fstring(ind string) string {
 	}
 	return resp + fmt.Sprintf("\n%s] ", ind)
 }
+
+// 打印分支节点内容。
 func (n *shortNode) fstring(ind string) string {
 	return fmt.Sprintf("{%x: %v} ", n.Key, n.Val.fstring(ind+"  "))
 }
@@ -113,6 +120,7 @@ func mustDecodeNode(hash, buf []byte) node {
 	return n
 }
 
+// 反解RLP，获取node.
 // decodeNode parses the RLP encoding of a trie node.
 func decodeNode(hash, buf []byte) (node, error) {
 	if len(buf) == 0 {
@@ -123,10 +131,10 @@ func decodeNode(hash, buf []byte) (node, error) {
 		return nil, fmt.Errorf("decode error: %v", err)
 	}
 	switch c, _ := rlp.CountValues(elems); c {
-	case 2:
+	case 2: // shortNode 有终结符是叶子节点。
 		n, err := decodeShort(hash, elems)
 		return n, wrapError(err, "short")
-	case 17:
+	case 17: // 分支节点满了
 		n, err := decodeFull(hash, elems)
 		return n, wrapError(err, "full")
 	default:
@@ -142,6 +150,7 @@ func decodeShort(hash, elems []byte) (node, error) {
 	flag := nodeFlag{hash: hash}
 	key := compactToHex(kbuf)
 	if hasTerm(key) {
+		// 有终结符，是叶子节点。
 		// value node
 		val, _, err := rlp.SplitString(rest)
 		if err != nil {

@@ -88,10 +88,12 @@ func (h *hasher) hash(n node, db *Database, force bool) (node, node, error) {
 		}
 	}
 	// Trie not processed yet or needs storage, walk the children
+	// 将collapsed.key 从hex 替换成了compact encoding。并且把子节点替换成子节点的hash值。
 	collapsed, cached, err := h.hashChildren(n, db)
 	if err != nil {
 		return hashNode{}, n, err
 	}
+	// 存入到DB中。
 	hashed, err := h.store(collapsed, db, force)
 	if err != nil {
 		return hashNode{}, n, err

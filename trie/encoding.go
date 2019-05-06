@@ -34,16 +34,31 @@ package trie
 // in the case of an odd number. All remaining nibbles (now an even number) fit properly
 // into the remaining bytes. Compact encoding is used for nodes stored on disk.
 
+/**
+TODO: 这个class的主要用途就是 keybytes hex compact 三种key进行转换。
+key 有三种不同的编码方式 :
+	KEYBYTES 包含实际的key。大多数API使用这种编码。 按完整字节存储的正常信息。
+	HEX编码： 每个HEX字节代表key的半字节。并且结尾会有一个可选的"终结符" ，这个终结符表示这个节点到底是否叶子节点还是扩展节点。
+		当节点被加载到内存里面时使用这种节点，因为它方便访问。
+		按照半字节（4bit）存储信息的格式。
+	COMPACT编码： Hex-Prefix编码。第一个字节的高半字节包含flag，最低位的bit编码长度的奇偶， 倒数第二位表明这个key所在的node是否是一个value node 。
+		当半字节的数目是偶数时 第一个字节的低半字节为0. 当半字节的数目是奇数时，第一个半字节是0 。剩下的半字节放到剩余的字节中。  可以在存储到数据库的时候 节约磁盘空间。
+ */
+
+// hex to compact
 func hexToCompact(hex []byte) []byte {
 	terminator := byte(0)
+	// 如果hex有终结符。
 	if hasTerm(hex) {
 		terminator = 1
 		hex = hex[:len(hex)-1]
 	}
+	// 半字节
 	buf := make([]byte, len(hex)/2+1)
 	buf[0] = terminator << 5 // the flag byte
+	// 奇数
 	if len(hex)&1 == 1 {
-		buf[0] |= 1 << 4 // odd flag
+		buf[0] |= 1 << 4 // odd flag ：   buf[0] 跟 1000 求或，然后将至再赋值给buf[0]
 		buf[0] |= hex[0] // first nibble is contained in the first byte
 		hex = hex[1:]
 	}
@@ -90,6 +105,7 @@ func hexToKeybytes(hex []byte) []byte {
 	return key
 }
 
+// 对半字节进行编码
 func decodeNibbles(nibbles []byte, bytes []byte) {
 	for bi, ni := 0, 0; ni < len(nibbles); bi, ni = bi+1, ni+2 {
 		bytes[bi] = nibbles[ni]<<4 | nibbles[ni+1]
