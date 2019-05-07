@@ -18,6 +18,7 @@
 package ethdb
 
 import "io"
+// 对db接口的封装。
 
 // Reader wraps the Has and Get method of a backing data store.
 type Reader interface {

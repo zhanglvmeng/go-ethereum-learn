@@ -27,6 +27,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 )
 
+// 基于内存map 相关的 KV 数据库框架层
 var (
 	// errMemorydbClosed is returned if a memory database was already closed at the
 	// invocation of a data access operation.
@@ -41,8 +42,8 @@ var (
 // functionality it also supports batch writes and iterating over the keyspace in
 // binary-alphabetical order.
 type Database struct {
-	db   map[string][]byte
-	lock sync.RWMutex
+	db   map[string][]byte  // 此map的key为string， value为 []byte。
+	lock sync.RWMutex // 读写锁。
 }
 
 // New returns a wrapped map with all the required database interface methods
@@ -225,6 +226,7 @@ func (b *batch) Write() error {
 	defer b.db.lock.Unlock()
 
 	for _, keyvalue := range b.writes {
+		// 遇到标识为删除的， 需要删除操作。
 		if keyvalue.delete {
 			delete(b.db.db, string(keyvalue.key))
 			continue

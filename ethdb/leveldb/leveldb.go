@@ -17,6 +17,7 @@
 // +build !js
 
 // Package leveldb implements the key-value database layer based on LevelDB.
+// 基于LevelDB的 kv数据库。
 package leveldb
 
 import (
@@ -222,6 +223,7 @@ func (db *Database) Path() string {
 //
 // This is how the iostats look like (currently):
 // Read(MB):3895.04860 Write(MB):3654.64712
+// 每个refresh秒  获取一次leveldb内部的计数器，然后把它们公布到metrics子系统。 这是一个无限循环的系统，直到quitChan收到一个退出信号。
 func (db *Database) meter(refresh time.Duration) {
 	// Create the counters to store current and previous compaction values
 	compactions := make([][]float64, 2)
