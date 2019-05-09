@@ -24,6 +24,7 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/netutil"
 )
 
+// 每接收到一个请求，就会启动一个goroutine调用ServeCodec来进行服务。
 // ServeListener accepts connections on l, serving JSON-RPC on them.
 func (s *Server) ServeListener(l net.Listener) error {
 	for {
@@ -35,6 +36,7 @@ func (s *Server) ServeListener(l net.Listener) error {
 			return err
 		}
 		log.Trace("Accepted RPC connection", "conn", conn.RemoteAddr())
+		// 每接收到一个请求，就会启动一个goroutine调用ServeCodec来进行服务。
 		go s.ServeCodec(NewJSONCodec(conn), OptionMethodInvocation|OptionSubscriptions)
 	}
 }

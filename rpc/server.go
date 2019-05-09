@@ -85,6 +85,7 @@ func (s *Server) ServeCodec(codec ServerCodec, options CodecOption) {
 	s.codecs.Add(codec)
 	defer s.codecs.Remove(codec)
 
+	// 初始化一个client.
 	c := initClient(codec, s.idgen, &s.services)
 	<-codec.Closed()
 	c.Close()
