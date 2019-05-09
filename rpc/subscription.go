@@ -87,6 +87,7 @@ func NotifierFromContext(ctx context.Context) (*Notifier, bool) {
 
 // Notifier is tied to a RPC connection that supports subscriptions.
 // Server callbacks use the notifier to send notifications.
+// 订阅模式下的notification
 type Notifier struct {
 	h         *handler
 	namespace string

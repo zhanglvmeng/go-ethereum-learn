@@ -31,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 )
 
+// 客户端的主要功能是把请求发送到服务器，然后接收回应，再把回应传递给调用者。
 var (
 	ErrClientQuit                = errors.New("client is closed")
 	ErrNoResult                  = errors.New("no result in JSON-RPC response")
@@ -264,6 +265,7 @@ func (c *Client) Close() {
 //
 // The result must be a pointer so that package json can unmarshal into it. You
 // can also pass nil, in which case the result is ignored.
+// 请求调用通过调用client的Call方法进行RPC调用。
 func (c *Client) Call(result interface{}, method string, args ...interface{}) error {
 	ctx := context.Background()
 	return c.CallContext(ctx, result, method, args...)
@@ -279,11 +281,14 @@ func (c *Client) CallContext(ctx context.Context, result interface{}, method str
 	if err != nil {
 		return err
 	}
+	// 构建了一个requestOp对象。resp 是读取返回的队列，队列长度是1.
 	op := &requestOp{ids: []json.RawMessage{msg.ID}, resp: make(chan *jsonrpcMessage, 1)}
 
+	// 发送请求。
 	if c.isHTTP {
 		err = c.sendHTTP(ctx, op, msg)
 	} else {
+		// 非http的请求。
 		err = c.send(ctx, op, msg)
 	}
 	if err != nil {
@@ -543,20 +548,20 @@ func (c *Client) dispatch(codec ServerCodec) {
 			return
 
 		// Read path:
-		case op := <-c.readOp:
+		case op := <-c.readOp: // 读取请求，并处理。
 			if op.batch {
 				conn.handler.handleBatch(op.msgs)
 			} else {
 				conn.handler.handleMsg(op.msgs[0])
 			}
 
-		case err := <-c.readErr:
+		case err := <-c.readErr: // 接收到读取失败的信息，这个是read线程传递过来的。
 			conn.handler.log.Debug("RPC connection read error", "err", err)
 			conn.close(err, lastOp)
 			reading = false
 
 		// Reconnect:
-		case newcodec := <-c.reconnected:
+		case newcodec := <-c.reconnected: // 重连接
 			log.Debug("RPC client reconnected", "reading", reading, "conn", newcodec.RemoteAddr())
 			if reading {
 				// Wait for the previous read loop to exit. This is a rare case which

@@ -100,10 +100,12 @@ func (s *Server) serveSingleRequest(ctx context.Context, codec ServerCodec) {
 		return
 	}
 
+	// 定义对应的handler, 里面主要包含了一个callback
 	h := newHandler(ctx, codec, s.idgen, &s.services)
 	h.allowSubscribe = false
 	defer h.close(io.EOF, nil)
 
+	// 获取链接中的请求
 	reqs, batch, err := codec.Read()
 	if err != nil {
 		if err != io.EOF {
@@ -112,8 +114,10 @@ func (s *Server) serveSingleRequest(ctx context.Context, codec ServerCodec) {
 		return
 	}
 	if batch {
+		// 批量处理请求
 		h.handleBatch(reqs)
 	} else {
+		// 单个请求的情况。
 		h.handleMsg(reqs[0])
 	}
 }

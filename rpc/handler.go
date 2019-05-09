@@ -113,23 +113,29 @@ func (h *handler) handleBatch(msgs []*jsonrpcMessage) {
 		return
 	}
 	// Process calls on a goroutine because they may block indefinitely:
+	// 实际的处理
 	h.startCallProc(func(cp *callProc) {
 		answers := make([]*jsonrpcMessage, 0, len(msgs))
+
 		for _, msg := range calls {
+			// 使用callback处理
 			if answer := h.handleCallMsg(cp, msg); answer != nil {
 				answers = append(answers, answer)
 			}
 		}
 		h.addSubscriptions(cp.notifiers)
 		if len(answers) > 0 {
+			// 将结果写过conn
 			h.conn.Write(cp.ctx, answers)
 		}
 		for _, n := range cp.notifiers {
+			// 订阅模式下， 将相关的处理结果发送给订阅者。
 			n.activate()
 		}
 	})
 }
 
+// 单个请求，跟batch 基本一样的流程。
 // handleMsg handles a single message.
 func (h *handler) handleMsg(msg *jsonrpcMessage) {
 	if ok := h.handleImmediate(msg); ok {
