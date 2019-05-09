@@ -25,6 +25,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 )
 
+// 主要实现了RPC服务端的功能。
 const MetadataApi = "rpc"
 
 // CodecOption specifies which type of messages a codec supports.
@@ -42,10 +43,10 @@ const (
 
 // Server is an RPC server.
 type Server struct {
-	services serviceRegistry
+	services serviceRegistry // 记录了所有注册的方法和类。
 	idgen    func() ID
-	run      int32
-	codecs   mapset.Set
+	run      int32 // 用来控制server的运行和停止
+	codecs   mapset.Set // 用来存储所有的编码解码器，其实就是所有的连接。
 }
 
 // NewServer creates a new server instance with no registered handlers.
@@ -53,6 +54,7 @@ func NewServer() *Server {
 	server := &Server{idgen: randomIDGenerator(), codecs: mapset.NewSet(), run: 1}
 	// Register the default service providing meta information about the RPC service such
 	// as the services and methods it offers.
+	// 注册
 	rpcService := &RPCService{server}
 	server.RegisterName(MetadataApi, rpcService)
 	return server

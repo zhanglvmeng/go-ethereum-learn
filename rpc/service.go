@@ -38,32 +38,35 @@ var (
 )
 
 type serviceRegistry struct {
-	mu       sync.Mutex
-	services map[string]service
+	mu       sync.Mutex  // 互斥锁
+	services map[string]service // 一堆service的map
 }
 
 // service represents a registered object.
 type service struct {
 	name          string               // name for service
-	callbacks     map[string]*callback // registered handlers
-	subscriptions map[string]*callback // available subscriptions/notifications
+	callbacks     map[string]*callback // registered handlers 被注册的callback处理函数。
+	subscriptions map[string]*callback // available subscriptions/notifications   可用的发布订阅模式。
 }
 
+// todo zpAsk10
 // callback is a method callback which was registered in the server
 type callback struct {
 	fn          reflect.Value  // the function
 	rcvr        reflect.Value  // receiver object of method, set if fn is method
-	argTypes    []reflect.Type // input argument types
+	argTypes    []reflect.Type // input argument types 输入的参数类型
 	hasCtx      bool           // method's first argument is a context (not included in argTypes)
 	errPos      int            // err return idx, of -1 when method cannot return error
-	isSubscribe bool           // true if this is a subscription callback
+	isSubscribe bool           // true if this is a subscription callback  是否是一个订阅的callback .
 }
 
+// 注册服务的实例。
 func (r *serviceRegistry) registerName(name string, rcvr interface{}) error {
 	rcvrVal := reflect.ValueOf(rcvr)
 	if name == "" {
 		return fmt.Errorf("no service name for type %s", rcvrVal.Type().String())
 	}
+	// 通过传入的rcvr 找到对应的callback方法。
 	callbacks := suitableCallbacks(rcvrVal)
 	if len(callbacks) == 0 {
 		return fmt.Errorf("service %T doesn't have any suitable methods/subscriptions to expose", rcvr)
@@ -219,6 +222,7 @@ func (c *callback) call(ctx context.Context, method string, args []reflect.Value
 }
 
 // Is this an exported - upper case - name?
+// 是否可以被导出的？ 判断标准就是名字的首字母是大写
 func isExported(name string) bool {
 	rune, _ := utf8.DecodeRuneInString(name)
 	return unicode.IsUpper(rune)
@@ -227,7 +231,7 @@ func isExported(name string) bool {
 // Are all those types exported or built-in?
 func allExportedOrBuiltin(types []reflect.Type) bool {
 	for _, typ := range types {
-		for typ.Kind() == reflect.Ptr {
+		for typ.Kind() == reflect.Ptr { // 单个条件判断，为true会一直执行括号中的内容， 否则停止循环。
 			typ = typ.Elem()
 		}
 		// PkgPath will be non-empty even for an exported type,
