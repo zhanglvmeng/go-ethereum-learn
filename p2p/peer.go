@@ -33,6 +33,11 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
+/**
+p2p包实现了通用的p2p网络协议。包括节点的查找，节点状态的维护，节点连接的建立等p2p的功能。p2p 包实现的是通用的p2p协议。
+某一种具体的协议(比如eth协议。 whisper协议。 swarm协议)被封装成特定的接口注入p2p包。所以p2p内部不包含具体协议的实现。 只完成了p2p网络应该做的事情。
+ */
+
 var (
 	ErrShuttingDown = errors.New("shutting down")
 )

@@ -44,7 +44,7 @@ type Node struct {
 	// Network-related fields are contained in nodeNetGuts.
 	// These fields are not supposed to be used off the
 	// Network.loop goroutine.
-	nodeNetGuts
+	nodeNetGuts // 跟节点网络相关的一些属性。
 }
 
 // NewNode creates a new node. It is mostly meant to be used for

@@ -39,6 +39,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
+// p2p节点的持久化。p2p节点的leveldb实例和主要的区块链的levelDB实例不是同一个。
 var (
 	nodeDBNilNodeID      = NodeID{}       // Special node ID to use as a nil element.
 	nodeDBNodeExpiration = 24 * time.Hour // Time after which an unseen node should be dropped.
@@ -70,9 +71,11 @@ var (
 // known peers in the network. If no path is given, an in-memory, temporary
 // database is constructed.
 func newNodeDB(path string, version int, self NodeID) (*nodeDB, error) {
+	// 如果路径为空，则创建新的基于内存的节点DB。
 	if path == "" {
 		return newMemoryNodeDB(self)
 	}
+	// 如果路径不空，则创建基于文件的节点DB.
 	return newPersistentNodeDB(path, version, self)
 }
 
@@ -103,10 +106,12 @@ func newPersistentNodeDB(path string, version int, self NodeID) (*nodeDB, error)
 	}
 	// The nodes contained in the cache correspond to a certain protocol version.
 	// Flush all nodes if the version doesn't match.
+	// 缓存中存储的节点跟某个特定的协议版本一致， 如果不匹配，则把删除原来的DB文件，然后重新创建新的持久化DB。.
+	// 1. 获取传过来的版本。
 	currentVer := make([]byte, binary.MaxVarintLen64)
 	currentVer = currentVer[:binary.PutVarint(currentVer, int64(version))]
 
-	blob, err := db.Get(nodeDBVersionKey, nil)
+	blob, err := db.Get(nodeDBVersionKey, nil) // 获取DB的版本
 	switch err {
 	case leveldb.ErrNotFound:
 		// Version not found (i.e. empty cache), insert it
@@ -197,7 +202,7 @@ func (db *nodeDB) fetchRLP(key []byte, val interface{}) error {
 	return err
 }
 
-// node retrieves a node with a given id from the database.
+// node retrieves a node with a given id from the database.  根据id从db中查询节点。
 func (db *nodeDB) node(id NodeID) *Node {
 	var node Node
 	if err := db.fetchRLP(makeKey(id, nodeDBDiscoverRoot), &node); err != nil {
@@ -232,14 +237,17 @@ func (db *nodeDB) deleteNode(id NodeID) error {
 // it would require significant overhead to exactly trace the first successful
 // convergence, it's simpler to "ensure" the correct state when an appropriate
 // condition occurs (i.e. a successful bonding), and discard further events.
+// 节点超时处理。
+// 这个方法确保expirer方法在运行。
 func (db *nodeDB) ensureExpirer() {
 	db.runner.Do(func() { go db.expirer() })
 }
 
 // expirer should be started in a go routine, and is responsible for looping ad
 // infinitum and dropping stale data from the database.
+// 这个方法以一个routine运行。 一直在循环，并且删除库中过期的数据。
 func (db *nodeDB) expirer() {
-	tick := time.NewTicker(nodeDBCleanupCycle)
+	tick := time.NewTicker(nodeDBCleanupCycle) // 每小时触发一次。
 	defer tick.Stop()
 	for {
 		select {
@@ -255,6 +263,7 @@ func (db *nodeDB) expirer() {
 
 // expireNodes iterates over the database and deletes all nodes that have not
 // been seen (i.e. received a pong from) for some allotted time.
+// 遍历节点， 找到过期的就删除。
 func (db *nodeDB) expireNodes() error {
 	threshold := time.Now().Add(-nodeDBNodeExpiration)
 
@@ -327,6 +336,7 @@ func (db *nodeDB) updateLocalEndpoint(id NodeID, ep rpcEndpoint) error {
 
 // querySeeds retrieves random nodes to be used as potential seed nodes
 // for bootstrapping.
+// 从数据库中随机挑选合适的种子节点。
 func (db *nodeDB) querySeeds(n int, maxAge time.Duration) []*Node {
 	var (
 		now   = time.Now()
