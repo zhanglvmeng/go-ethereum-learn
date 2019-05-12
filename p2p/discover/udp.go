@@ -62,6 +62,7 @@ const (
 )
 
 // RPC packet types
+// 网络传输了4种数据包。
 const (
 	pingPacket = iota + 1 // zero is 'reserved'
 	pongPacket
@@ -74,27 +75,27 @@ type (
 	ping struct {
 		senderKey *ecdsa.PublicKey // filled in by preverify
 
-		Version    uint
+		Version    uint // 版本
 		From, To   rpcEndpoint
-		Expiration uint64
+		Expiration uint64 // 超时时间
 		// Ignore additional fields (for forward compatibility).
-		Rest []rlp.RawValue `rlp:"tail"`
+		Rest []rlp.RawValue `rlp:"tail"` // 忽略字段。
 	}
 
-	// pong is the reply to ping.
+	// pong is the reply to ping. ping包的响应。
 	pong struct {
 		// This field should mirror the UDP envelope address
 		// of the ping packet, which provides a way to discover the
 		// the external address (after NAT).
 		To rpcEndpoint
 
-		ReplyTok   []byte // This contains the hash of the ping packet.
-		Expiration uint64 // Absolute timestamp at which the packet becomes invalid.
+		ReplyTok   []byte // This contains the hash of the ping packet. 这个包是对应哪个ping的响应。
+		Expiration uint64 // Absolute timestamp at which the packet becomes invalid. 包超时的绝对时间。
 		// Ignore additional fields (for forward compatibility).
 		Rest []rlp.RawValue `rlp:"tail"`
 	}
 
-	// findnode is a query for nodes close to the given target.
+	// findnode is a query for nodes close to the given target. 用来查询距离target比较近的节点
 	findnode struct {
 		Target     encPubkey
 		Expiration uint64
@@ -104,7 +105,7 @@ type (
 
 	// reply to findnode
 	neighbors struct {
-		Nodes      []rpcNode
+		Nodes      []rpcNode // 距离target比较近的节点值。
 		Expiration uint64
 		// Ignore additional fields (for forward compatibility).
 		Rest []rlp.RawValue `rlp:"tail"`
@@ -163,6 +164,7 @@ func nodeToRPC(n *node) rpcNode {
 }
 
 // packet is implemented by all protocol messages.
+// 给4种不同类型的包分派不同的handle方法。
 type packet interface {
 	// preverify checks whether the packet is valid and should be handled at all.
 	preverify(t *udp, from *net.UDPAddr, fromID enode.ID, fromKey encPubkey) error
@@ -172,6 +174,7 @@ type packet interface {
 	name() string
 }
 
+// 定义了一个UDP的连接功能。
 type conn interface {
 	ReadFromUDP(b []byte) (n int, addr *net.UDPAddr, err error)
 	WriteToUDP(b []byte, addr *net.UDPAddr) (n int, err error)
@@ -183,7 +186,7 @@ type conn interface {
 type udp struct {
 	conn        conn
 	netrestrict *netutil.Netlist
-	priv        *ecdsa.PrivateKey
+	priv        *ecdsa.PrivateKey // 私钥
 	localNode   *enode.LocalNode
 	db          *enode.DB
 	tab         *Table
@@ -191,7 +194,7 @@ type udp struct {
 
 	addReplyMatcher chan *replyMatcher
 	gotreply        chan reply
-	closing         chan struct{}
+	closing         chan struct{} // 用来关闭的队列。
 }
 
 // pending represents a pending reply.
@@ -203,6 +206,8 @@ type udp struct {
 // Our implementation handles this by storing a callback function for
 // each pending reply. Incoming packets from a node are dispatched
 // to all callback functions for that node.
+// 代表正在等待一个reply
+// 通过每一个replayMatcher 存储了一个callback 来实现这个功能。从一个节点来的所有数据都会分配到这个节点对应的callback上。
 type replyMatcher struct {
 	// these fields must match in the reply.
 	from  enode.ID
@@ -273,6 +278,7 @@ func newUDP(c conn, ln *enode.LocalNode, cfg Config) (*Table, *udp, error) {
 		gotreply:        make(chan reply),
 		addReplyMatcher: make(chan *replyMatcher),
 	}
+	// 这个是kad协议的核心类  table. 里面包含了节点上对应的多个bucket。
 	tab, err := newTable(udp, ln.Database(), cfg.Bootnodes)
 	if err != nil {
 		return nil, nil, err
@@ -280,8 +286,8 @@ func newUDP(c conn, ln *enode.LocalNode, cfg Config) (*Table, *udp, error) {
 	udp.tab = tab
 
 	udp.wg.Add(2)
-	go udp.loop()
-	go udp.readLoop(cfg.Unhandled)
+	go udp.loop() // 监听pending reply 队列。
+	go udp.readLoop(cfg.Unhandled) // 用来网络数据读取。
 	return udp.tab, udp, nil
 }
 
@@ -323,6 +329,7 @@ func (t *udp) sendPing(toid enode.ID, toaddr *net.UDPAddr, callback func()) <-ch
 	}
 	// Add a matcher for the reply to the pending reply queue. Pongs are matched if they
 	// reference the ping we're about to send.
+	// 在pending replay队列中 为当前的reply 添加 matcher(里面会包含callback 的方法)
 	errc := t.pending(toid, toaddr.IP, pongPacket, func(p interface{}) (matched bool, requestDone bool) {
 		matched = bytes.Equal(p.(*pong).ReplyTok, hash)
 		if matched && callback != nil {
@@ -404,6 +411,7 @@ func (t *udp) handleReply(from enode.ID, fromIP net.IP, ptype byte, req packet) 
 
 // loop runs in its own goroutine. it keeps track of
 // the refresh timer and the pending reply queue.
+// 追踪pending reply 队列。
 func (t *udp) loop() {
 	defer t.wg.Done()
 
@@ -418,6 +426,7 @@ func (t *udp) loop() {
 	defer timeout.Stop()
 
 	resetTimeout := func() {
+		// 这个方法的主要功能是查看队列中是否有需要超时的pending消息。如果有， 那么根据最先超时的时间设置超时提醒。
 		if plist.Front() == nil || nextTimeout == plist.Front().Value {
 			return
 		}
@@ -440,20 +449,20 @@ func (t *udp) loop() {
 	}
 
 	for {
-		resetTimeout()
+		resetTimeout() // 首先处理超时。
 
 		select {
-		case <-t.closing:
+		case <-t.closing: // 收到关闭消息，超时所有的堵塞队列。
 			for el := plist.Front(); el != nil; el = el.Next() {
 				el.Value.(*replyMatcher).errc <- errClosed
 			}
 			return
 
-		case p := <-t.addReplyMatcher:
+		case p := <-t.addReplyMatcher: // 增加一个pending ，设置deadline
 			p.deadline = time.Now().Add(respTimeout)
 			plist.PushBack(p)
 
-		case r := <-t.gotreply:
+		case r := <-t.gotreply: // 收到reply ， 寻找匹配的pending
 			var matched bool // whether any replyMatcher considered the reply acceptable.
 			for el := plist.Front(); el != nil; el = el.Next() {
 				p := el.Value.(*replyMatcher)
@@ -471,7 +480,7 @@ func (t *udp) loop() {
 			}
 			r.matched <- matched
 
-		case now := <-timeout.C:
+		case now := <-timeout.C: // 处理超时信息
 			nextTimeout = nil
 
 			// Notify and remove callbacks whose deadline is in the past.
@@ -541,6 +550,7 @@ func (t *udp) write(toaddr *net.UDPAddr, toid enode.ID, what string, packet []by
 	return err
 }
 
+// 加密
 func encodePacket(priv *ecdsa.PrivateKey, ptype byte, req interface{}) (packet, hash []byte, err error) {
 	b := new(bytes.Buffer)
 	b.Write(headSpace)
@@ -609,6 +619,7 @@ func (t *udp) handlePacket(from *net.UDPAddr, buf []byte) error {
 	return err
 }
 
+// 解密
 func decodePacket(buf []byte) (packet, encPubkey, []byte, error) {
 	if len(buf) < headSize+1 {
 		return nil, encPubkey{}, nil, errPacketTooSmall
