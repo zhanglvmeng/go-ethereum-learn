@@ -121,6 +121,7 @@ func (t *rlpx) close(err error) {
 	t.fd.Close()
 }
 
+// 进行协议特性之间的协商，比如双方的协议版本，是否支持Snappy加密方式等操作。
 func (t *rlpx) doProtoHandshake(our *protoHandshake) (their *protoHandshake, err error) {
 	// Writing our handshake happens concurrently, we prefer
 	// returning the handshake read error. If the remote side
@@ -175,14 +176,17 @@ func readProtocolHandshake(rw MsgReader) (*protoHandshake, error) {
 // messages. the protocol handshake is the first authenticated message
 // and also verifies whether the encryption handshake 'worked' and the
 // remote side actually provided the right public key.
+// 交换密钥，创建加密信道的流程
 func (t *rlpx) doEncHandshake(prv *ecdsa.PrivateKey, dial *ecdsa.PublicKey) (*ecdsa.PublicKey, error) {
 	var (
 		sec secrets
 		err error
 	)
 	if dial == nil {
+		// 链接的被动接收者
 		sec, err = receiverEncHandshake(t.fd, prv)
 	} else {
+		// 链接的发起者
 		sec, err = initiatorEncHandshake(t.fd, prv, dial)
 	}
 	if err != nil {
@@ -280,10 +284,12 @@ func (h *encHandshake) staticSharedSecret(prv *ecdsa.PrivateKey) ([]byte, error)
 // prv is the local client's private key.
 func initiatorEncHandshake(conn io.ReadWriter, prv *ecdsa.PrivateKey, remote *ecdsa.PublicKey) (s secrets, err error) {
 	h := &encHandshake{initiator: true, remote: ecies.ImportECDSAPublic(remote)}
+	// 创建authMsg
 	authMsg, err := h.makeAuthMsg(prv)
 	if err != nil {
 		return s, err
 	}
+	// 组包
 	authPacket, err := sealEIP8(authMsg, h)
 	if err != nil {
 		return s, err
@@ -293,6 +299,7 @@ func initiatorEncHandshake(conn io.ReadWriter, prv *ecdsa.PrivateKey, remote *ec
 	}
 
 	authRespMsg := new(authRespV4)
+	// 使用自己的私钥进行解码然后调用rlp解码成结构体
 	authRespPacket, err := readHandshakeMsg(authRespMsg, encAuthRespLen, prv, conn)
 	if err != nil {
 		return s, err
@@ -300,6 +307,8 @@ func initiatorEncHandshake(conn io.ReadWriter, prv *ecdsa.PrivateKey, remote *ec
 	if err := h.handleAuthResp(authRespMsg); err != nil {
 		return s, err
 	}
+	// 在handshake完成之后调用。它通过自己的随机私钥和对端的公钥来生成一个共享秘密,这个共享秘密是瞬时的(只在当前这个链接中存在)。
+	// 所以当有一天私钥被破解。 之前的消息还是安全的。
 	return h.secrets(authPacket, authRespPacket)
 }
 
@@ -456,6 +465,7 @@ func (msg *authRespV4) decodePlain(input []byte) {
 
 var padSpace = make([]byte, 300)
 
+// 对msg进行rlp的编码。 填充一些数据。 然后使用对方的公钥把数据进行加密。 这意味着只有对方的私钥才能解密这段信息。
 func sealEIP8(msg interface{}, h *encHandshake) ([]byte, error) {
 	buf := new(bytes.Buffer)
 	if err := rlp.Encode(buf, msg); err != nil {
@@ -555,6 +565,7 @@ var (
 // zeroHeader.
 //
 // rlpxFrameRW is not safe for concurrent use from multiple goroutines.
+// 数据分帧
 type rlpxFrameRW struct {
 	conn io.ReadWriter
 	enc  cipher.Stream
