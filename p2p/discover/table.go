@@ -72,7 +72,7 @@ type Table struct {
 	ips     netutil.DistinctNetSet
 
 	db         *enode.DB // database of known nodes
-	net        transport
+	net        transport // 基于UDP的传输。
 	refreshReq chan chan struct{}
 	initDone   chan struct{}
 
@@ -86,6 +86,7 @@ type Table struct {
 // transport is implemented by the UDP transport.
 // it is an interface so we can test without opening lots of UDP
 // sockets and without generating a private key.
+// 基于UDP的传输
 type transport interface {
 	self() *enode.Node
 	ping(enode.ID, *net.UDPAddr) error
@@ -95,12 +96,14 @@ type transport interface {
 
 // bucket contains nodes, ordered by their last activity. the entry
 // that was most recently active is the first element in entries.
+// bucket 里面包含node. 按照活跃度排序，活跃的排在前面。
 type bucket struct {
-	entries      []*node // live entries, sorted by time of last contact
-	replacements []*node // recently seen nodes to be used if revalidation fails
+	entries      []*node // live entries, sorted by time of last contact  活跃的节点
+	replacements []*node // recently seen nodes to be used if revalidation fails 意思是 如果验证失败，这些节点会被优先加入到bucket ？
 	ips          netutil.DistinctNetSet
 }
 
+// 初始化table 。 table中包含多个bucket。
 func newTable(t transport, db *enode.DB, bootnodes []*enode.Node) (*Table, error) {
 	tab := &Table{
 		net:        t,
@@ -123,7 +126,7 @@ func newTable(t transport, db *enode.DB, bootnodes []*enode.Node) (*Table, error
 	tab.seedRand()
 	tab.loadSeedNodes()
 
-	go tab.loop()
+	go tab.loop() // 每小时会进行一次刷新工作。 如果接收到刷新请求，也进行刷新； 如果接收到关闭请求，就关闭。
 	return tab, nil
 }
 
@@ -247,6 +250,7 @@ func (tab *Table) LookupRandom() []*enode.Node {
 // lookup performs a network search for nodes close to the given target. It approaches the
 // target by querying nodes that are closer to it on each iteration. The given target does
 // not need to be an actual node identifier.
+// 找到距离给定目标相近的节点。 只要找到相近的即可，并且给定的目标并不一定要是一个实际的节点标识。
 func (tab *Table) lookup(targetKey encPubkey, refreshIfEmpty bool) []*node {
 	var (
 		target         = enode.ID(crypto.Keccak256Hash(targetKey[:]))
@@ -260,6 +264,7 @@ func (tab *Table) lookup(targetKey encPubkey, refreshIfEmpty bool) []*node {
 	// unlikely to happen often in practice.
 	asked[tab.self().ID()] = true
 
+	// 找到逻辑上距离最近的几个节点
 	for {
 		tab.mutex.Lock()
 		// generate initial result set
@@ -276,6 +281,7 @@ func (tab *Table) lookup(targetKey encPubkey, refreshIfEmpty bool) []*node {
 		refreshIfEmpty = false
 	}
 
+	// 对节点进行UDP 请求。
 	for {
 		// ask the alpha closest nodes that we haven't asked yet
 		for i := 0; i < len(result.entries) && pendingQueries < alpha; i++ {
@@ -283,6 +289,7 @@ func (tab *Table) lookup(targetKey encPubkey, refreshIfEmpty bool) []*node {
 			if !asked[n.ID()] {
 				asked[n.ID()] = true
 				pendingQueries++
+				// 找节点。
 				go tab.findnode(n, targetKey, reply)
 			}
 		}
@@ -308,6 +315,7 @@ func (tab *Table) lookup(targetKey encPubkey, refreshIfEmpty bool) []*node {
 
 func (tab *Table) findnode(n *node, targetKey encPubkey, reply chan<- []*node) {
 	fails := tab.db.FindFails(n.ID(), n.IP())
+	// 使用UDP协议，进行节点查找。
 	r, err := tab.net.findnode(n.ID(), n.addr(), targetKey)
 	if err == errClosed {
 		// Avoid recording failures on shutdown.
@@ -363,32 +371,32 @@ func (tab *Table) loop() {
 loop:
 	for {
 		select {
-		case <-refresh.C:
+		case <-refresh.C: // 刷新操作
 			tab.seedRand()
 			if refreshDone == nil {
 				refreshDone = make(chan struct{})
 				go tab.doRefresh(refreshDone)
 			}
-		case req := <-tab.refreshReq:
+		case req := <-tab.refreshReq: // 刷新操作
 			waiting = append(waiting, req)
 			if refreshDone == nil {
 				refreshDone = make(chan struct{})
 				go tab.doRefresh(refreshDone)
 			}
-		case <-refreshDone:
+		case <-refreshDone: // 刷新结束
 			for _, ch := range waiting {
 				close(ch)
 			}
 			waiting, refreshDone = nil, nil
-		case <-revalidate.C:
+		case <-revalidate.C: // 验证
 			revalidateDone = make(chan struct{})
 			go tab.doRevalidate(revalidateDone)
-		case <-revalidateDone:
+		case <-revalidateDone: // 验证结束
 			revalidate.Reset(tab.nextRevalidateTime())
 			revalidateDone = nil
-		case <-copyNodes.C:
+		case <-copyNodes.C: // copy node
 			go tab.copyLiveNodes()
-		case <-tab.closeReq:
+		case <-tab.closeReq: // 关闭请求
 			break loop
 		}
 	}
@@ -408,17 +416,21 @@ loop:
 // doRefresh performs a lookup for a random target to keep buckets
 // full. seed nodes are inserted if the table is empty (initial
 // bootstrap or discarded faulty peers).
+//
 func (tab *Table) doRefresh(done chan struct{}) {
 	defer close(done)
 
 	// Load nodes from the database and insert
 	// them. This should yield a few previously seen nodes that are
 	// (hopefully) still alive.
+	// 从db中加载所有节点，并把他们插入到table对应的bucket中。
 	tab.loadSeedNodes()
 
 	// Run self lookup to discover new neighbor nodes.
 	// We can only do this if we have a secp256k1 identity.
+	// 发现相邻的节点。
 	var key ecdsa.PublicKey
+	// 从底层 加载 一个 节点
 	if err := tab.self().Load((*enode.Secp256k1)(&key)); err == nil {
 		tab.lookup(encodePubkey(&key), false)
 	}
@@ -437,12 +449,14 @@ func (tab *Table) doRefresh(done chan struct{}) {
 }
 
 func (tab *Table) loadSeedNodes() {
+	// 随机找了几个node, 作为seeds node
 	seeds := wrapNodes(tab.db.QuerySeeds(seedCount, seedMaxAge))
 	seeds = append(seeds, tab.nursery...)
 	for i := range seeds {
 		seed := seeds[i]
 		age := log.Lazy{Fn: func() interface{} { return time.Since(tab.db.LastPongReceived(seed.ID(), seed.IP())) }}
 		log.Trace("Found seed node in database", "id", seed.ID(), "addr", seed.addr(), "age", age)
+		// addSeenNode 将这几个seed node加入到 table 的对应bucket中去。
 		tab.addSeenNode(seed)
 	}
 }
@@ -520,6 +534,7 @@ func (tab *Table) copyLiveNodes() {
 
 // closest returns the n nodes in the table that are closest to the
 // given id. The caller must hold tab.mutex.
+// 找到距离target最近的几个点
 func (tab *Table) closest(target enode.ID, nresults int) *nodesByDistance {
 	// This is a very wasteful way to find the closest nodes but
 	// obviously correct. I believe that tree-based buckets would make
@@ -527,6 +542,7 @@ func (tab *Table) closest(target enode.ID, nresults int) *nodesByDistance {
 	close := &nodesByDistance{target: target}
 	for _, b := range &tab.buckets {
 		for _, n := range b.entries {
+			// 桶中的节点，并且这些节点是活跃的。
 			if n.livenessChecks > 0 {
 				close.push(n, nresults)
 			}
@@ -556,6 +572,7 @@ func (tab *Table) bucket(id enode.ID) *bucket {
 // added to the replacements list.
 //
 // The caller must not hold tab.mutex.
+// 向桶中添加节点。 如果桶中空间够用，直接添加； 否则 把node添加到replacement list中。
 func (tab *Table) addSeenNode(n *node) {
 	if n.ID() == tab.self().ID() {
 		return
@@ -573,14 +590,18 @@ func (tab *Table) addSeenNode(n *node) {
 		tab.addReplacement(b, n)
 		return
 	}
+	// 向tab 中 对应的bucket中添加ip
 	if !tab.addIP(b, n.IP()) {
 		// Can't add: IP limit reached.
 		return
 	}
 	// Add to end of bucket:
+	// 插入到bucket中
 	b.entries = append(b.entries, n)
+	// 如果当前节点曾经在replacements中，则从replacement中删除。
 	b.replacements = deleteNode(b.replacements, n)
 	n.addedAt = time.Now()
+	// 向tab中的 nodeAddedHook 加入该节点。
 	if tab.nodeAddedHook != nil {
 		tab.nodeAddedHook(n)
 	}

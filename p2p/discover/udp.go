@@ -331,13 +331,16 @@ func (t *udp) sendPing(toid enode.ID, toaddr *net.UDPAddr, callback func()) <-ch
 		return matched, matched
 	})
 	// Send the packet.
+	// UDP package
 	t.localNode.UDPContact(toaddr)
+	// send udp request
 	t.write(toaddr, toid, req.name(), packet)
 	return errc
 }
 
 // findnode sends a findnode request to the given node and waits until
 // the node has sent up to k neighbors.
+// 查找节点
 func (t *udp) findnode(toid enode.ID, toaddr *net.UDPAddr, target encPubkey) ([]*node, error) {
 	// If we haven't seen a ping from the destination node for a while, it won't remember
 	// our endpoint proof and reject findnode. Solicit a ping first.
@@ -351,6 +354,7 @@ func (t *udp) findnode(toid enode.ID, toaddr *net.UDPAddr, target encPubkey) ([]
 	// active until enough nodes have been received.
 	nodes := make([]*node, 0, bucketSize)
 	nreceived := 0
+	// 发送UDP请求
 	errc := t.pending(toid, toaddr.IP, neighborsPacket, func(r interface{}) (matched bool, requestDone bool) {
 		reply := r.(*neighbors)
 		for _, rn := range reply.Nodes {
