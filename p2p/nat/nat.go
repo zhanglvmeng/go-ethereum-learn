@@ -31,6 +31,7 @@ import (
 
 // An implementation of nat.Interface can map local ports to ports
 // accessible from the Internet.
+// nat.Interface的一个实现。 将本地端口映射到可以从网络中访问的端口。
 type Interface interface {
 	// These methods manage a mapping between a port on the local
 	// machine to a port that can be connected to from the internet.
@@ -59,6 +60,7 @@ type Interface interface {
 //     "upnp"               uses the Universal Plug and Play protocol
 //     "pmp"                uses NAT-PMP with an auto-detected gateway address
 //     "pmp:192.168.0.1"    uses NAT-PMP with the given gateway address
+// 解析NAT接口描述。里面包含了upnp、pmp等网络打洞协议。
 func Parse(spec string) (Interface, error) {
 	var (
 		parts = strings.SplitN(spec, ":", 2)

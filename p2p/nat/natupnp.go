@@ -99,6 +99,7 @@ func (n *upnp) String() string {
 
 // discoverUPnP searches for Internet Gateway Devices
 // and returns the first one it can find on the local network.
+// 搜寻网络中的网关设备。里面实现了不同的协议。
 func discoverUPnP() Interface {
 	found := make(chan *upnp, 2)
 	// IGDv1
@@ -134,6 +135,7 @@ func discoverUPnP() Interface {
 // finds devices matching the given target and calls matcher for all
 // advertised services of each device. The first non-nil service found
 // is sent into out. If no service matched, nil is sent.
+// 根据目标找到设备，并且为每个设置调用不同的matcher.
 func discover(out chan<- *upnp, target string, matcher func(*goupnp.RootDevice, goupnp.ServiceClient) *upnp) {
 	devs, err := goupnp.DiscoverDevices(target)
 	if err != nil {
