@@ -27,7 +27,7 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/enode"
 	"github.com/ethereum/go-ethereum/p2p/netutil"
 )
-
+// 主要负责建立连接的部分。
 const (
 	// This is the amount of time spent waiting in between
 	// redialing a certain node.
@@ -60,28 +60,31 @@ type TCPDialer struct {
 
 // Dial creates a TCP connection to the node
 func (t TCPDialer) Dial(dest *enode.Node) (net.Conn, error) {
+	// 找到目的地址 IP跟端口
 	addr := &net.TCPAddr{IP: dest.IP(), Port: dest.TCP()}
+	// 连接
 	return t.Dialer.Dial("tcp", addr.String())
 }
 
 // dialstate schedules dials and discovery lookups.
 // It gets a chance to compute new tasks on every iteration
 // of the main loop in Server.run.
+// dial 的中间状态
 type dialstate struct {
-	maxDynDials int
-	ntab        discoverTable
-	netrestrict *netutil.Netlist
+	maxDynDials int // 最大的动态节点连接数量
+	ntab        discoverTable // discoverTable用来做节点查询的。
+	netrestrict *netutil.Netlist // a list of IP network
 	self        enode.ID
 
 	lookupRunning bool
-	dialing       map[enode.ID]connFlag
-	lookupBuf     []*enode.Node // current discovery lookup results
-	randomNodes   []*enode.Node // filled from Table
-	static        map[enode.ID]*dialTask
-	hist          *dialHistory
+	dialing       map[enode.ID]connFlag // 正在连接的节点
+	lookupBuf     []*enode.Node // current discovery lookup results 当前的discovery 查询结果
+	randomNodes   []*enode.Node // filled from Table 从discoverTable 随机查询的节点
+	static        map[enode.ID]*dialTask // 静态的节点
+	hist          *dialHistory // the dial history remembers recent dials.
 
 	start     time.Time     // time when the dialer was first used
-	bootnodes []*enode.Node // default dials when there are no peers
+	bootnodes []*enode.Node // default dials when there are no peers 这个是内置的节点。 如果没有找到其他节点。那么使用链接这些节点
 }
 
 type discoverTable interface {
@@ -165,6 +168,7 @@ func (s *dialstate) newTasks(nRunning int, peers map[enode.ID]*Peer, now time.Ti
 	}
 
 	var newtasks []task
+	// addDial是个内部方法， 首先通过checkDial检查节点。 然后设置状态，最后把节点增加到newTasks队列里面。
 	addDial := func(flag connFlag, n *enode.Node) bool {
 		if err := s.checkDial(n, peers); err != nil {
 			log.Trace("Skipping dial candidate", "id", n.ID(), "addr", &net.TCPAddr{IP: n.IP(), Port: n.TCP()}, "err", err)
@@ -177,11 +181,13 @@ func (s *dialstate) newTasks(nRunning int, peers map[enode.ID]*Peer, now time.Ti
 
 	// Compute number of dynamic dials necessary at this point.
 	needDynDials := s.maxDynDials
+	// 首先判断已经建立的连接的类型。如果是动态类型。那么需要建立动态链接数量减少。
 	for _, p := range peers {
 		if p.rw.is(dynDialedConn) {
 			needDynDials--
 		}
 	}
+	// 然后再判断正在建立的链接。如果是动态类型。那么需要建立动态链接数量减少。
 	for _, flag := range s.dialing {
 		if flag&dynDialedConn != 0 {
 			needDynDials--
@@ -192,6 +198,7 @@ func (s *dialstate) newTasks(nRunning int, peers map[enode.ID]*Peer, now time.Ti
 	s.hist.expire(now)
 
 	// Create dials for static nodes if they are not connected.
+	// 查看所有的静态类型。如果可以那么也创建链接。
 	for id, t := range s.static {
 		err := s.checkDial(t.dest, peers)
 		switch err {
@@ -206,6 +213,7 @@ func (s *dialstate) newTasks(nRunning int, peers map[enode.ID]*Peer, now time.Ti
 	// If we don't have any peers whatsoever, try to dial a random bootnode. This
 	// scenario is useful for the testnet (and private networks) where the discovery
 	// table might be full of mostly bad peers, making it hard to find good ones.
+	// 如果当前还没有任何链接。 而且20秒(fallbackInterval)内没有创建任何链接。 那么就使用bootnode创建链接。
 	if len(peers) == 0 && len(s.bootnodes) > 0 && needDynDials > 0 && now.Sub(s.start) > fallbackInterval {
 		bootnode := s.bootnodes[0]
 		s.bootnodes = append(s.bootnodes[:0], s.bootnodes[1:]...)
@@ -217,6 +225,7 @@ func (s *dialstate) newTasks(nRunning int, peers map[enode.ID]*Peer, now time.Ti
 	}
 	// Use random nodes from the table for half of the necessary
 	// dynamic dials.
+	// 否则使用1/2的随机节点创建链接。
 	randomCandidates := needDynDials / 2
 	if randomCandidates > 0 {
 		n := s.ntab.ReadRandomNodes(s.randomNodes)
@@ -236,6 +245,7 @@ func (s *dialstate) newTasks(nRunning int, peers map[enode.ID]*Peer, now time.Ti
 	}
 	s.lookupBuf = s.lookupBuf[:copy(s.lookupBuf, s.lookupBuf[i:])]
 	// Launch a discovery lookup if more candidates are needed.
+	// 如果就算这样也不能创建足够动态链接。 那么创建一个discoverTask用来再网络上查找其他的节点。放入lookupBuf
 	if len(s.lookupBuf) < needDynDials && !s.lookupRunning {
 		s.lookupRunning = true
 		newtasks = append(newtasks, &discoverTask{})
@@ -245,6 +255,7 @@ func (s *dialstate) newTasks(nRunning int, peers map[enode.ID]*Peer, now time.Ti
 	// candidates have been tried and no task is currently active.
 	// This should prevent cases where the dialer logic is not ticked
 	// because there are no pending events.
+	// 如果当前没有任何任务需要做，那么创建一个睡眠的任务返回。
 	if nRunning == 0 && len(newtasks) == 0 && s.hist.Len() > 0 {
 		t := &waitExpireTask{s.hist.min().exp.Sub(now)}
 		newtasks = append(newtasks, t)
@@ -263,20 +274,22 @@ var (
 func (s *dialstate) checkDial(n *enode.Node, peers map[enode.ID]*Peer) error {
 	_, dialing := s.dialing[n.ID()]
 	switch {
-	case dialing:
+	case dialing: // 正在创建连接
 		return errAlreadyDialing
-	case peers[n.ID()] != nil:
+	case peers[n.ID()] != nil: // 已经创建连接了
 		return errAlreadyConnected
 	case n.ID() == s.self:
 		return errSelf
-	case s.netrestrict != nil && !s.netrestrict.Contains(n.IP()):
+	case s.netrestrict != nil && !s.netrestrict.Contains(n.IP()): // 网络限制。对方的IP地址不在白名单里面。
 		return errNotWhitelisted
-	case s.hist.contains(n.ID()):
+	case s.hist.contains(n.ID()): // 这个ID曾经连接过。
 		return errRecentlyDialed
 	}
 	return nil
 }
 
+// 这个方法在task完成之后会被调用。
+//  查看task的类型。如果是链接任务，那么增加到hist里面。 并从正在链接的队列删除。 如果是查询任务。 把查询的记过放在lookupBuf里面。
 func (s *dialstate) taskDone(t task, now time.Time) {
 	switch t := t.(type) {
 	case *dialTask:
@@ -289,15 +302,16 @@ func (s *dialstate) taskDone(t task, now time.Time) {
 }
 
 func (t *dialTask) Do(srv *Server) {
+	// dest 为空
 	if t.dest.Incomplete() {
-		if !t.resolve(srv) {
+		if !t.resolve(srv) { // t.resolve 查询ip地址
 			return
 		}
 	}
-	err := t.dial(srv, t.dest)
+	err := t.dial(srv, t.dest) // dial方法用来创建连接
 	if err != nil {
 		log.Trace("Dial error", "task", t, "err", err)
-		// Try resolving the ID of static nodes if dialing failed.
+		// Try resolving the ID of static nodes if dialing failed. 对于静态的节点，如果第一次失败， 那么会尝试再次resolve静态节点，然后dial
 		if _, ok := err.(*dialError); ok && t.flags&staticDialedConn != 0 {
 			if t.resolve(srv) {
 				t.dial(srv, t.dest)
@@ -312,6 +326,7 @@ func (t *dialTask) Do(srv *Server) {
 // Resolve operations are throttled with backoff to avoid flooding the
 // discovery network with useless queries for nodes that don't exist.
 // The backoff delay resets when the node is found.
+// 调用discover网络的resolve方法。
 func (t *dialTask) resolve(srv *Server) bool {
 	if srv.ntab == nil {
 		log.Debug("Can't resolve node", "id", t.dest.ID, "err", "discovery is disabled")
@@ -323,6 +338,7 @@ func (t *dialTask) resolve(srv *Server) bool {
 	if time.Since(t.lastResolved) < t.resolveDelay {
 		return false
 	}
+	// 调用discover网络的resolve方法。
 	resolved := srv.ntab.Resolve(t.dest)
 	t.lastResolved = time.Now()
 	if resolved == nil {
@@ -345,6 +361,7 @@ type dialError struct {
 }
 
 // dial performs the actual connection attempt.
+// 这个方法进行了实际的网络连接操作。 主要通过srv.SetupConn方法来完成
 func (t *dialTask) dial(srv *Server, dest *enode.Node) error {
 	fd, err := srv.Dialer.Dial(dest)
 	if err != nil {
