@@ -38,6 +38,8 @@ p2p包实现了通用的p2p网络协议。包括节点的查找，节点状态�
 某一种具体的协议(比如eth协议。 whisper协议。 swarm协议)被封装成特定的接口注入p2p包。所以p2p内部不包含具体协议的实现。 只完成了p2p网络应该做的事情。
  */
 
+ // 在P2P代码里面，peer代表了创建好的网络连接。在一条链路上可能运行着多个协议。比如以太坊协议eth/ swarm 的协议或者whisper的协议。
+
 var (
 	ErrShuttingDown = errors.New("shutting down")
 )
@@ -78,18 +80,22 @@ type PeerEventType string
 const (
 	// PeerEventTypeAdd is the type of event emitted when a peer is added
 	// to a p2p.Server
+	// peer 添加时触发的事件。
 	PeerEventTypeAdd PeerEventType = "add"
 
 	// PeerEventTypeDrop is the type of event emitted when a peer is
 	// dropped from a p2p.Server
+	// peer drop的时候触发的事件
 	PeerEventTypeDrop PeerEventType = "drop"
 
 	// PeerEventTypeMsgSend is the type of event emitted when a
 	// message is successfully sent to a peer
+	// 当向一个peer发送消息时触发的事件。
 	PeerEventTypeMsgSend PeerEventType = "msgsend"
 
 	// PeerEventTypeMsgRecv is the type of event emitted when a
 	// message is received from a peer
+	// 当收到一个消息时触发的事件。
 	PeerEventTypeMsgRecv PeerEventType = "msgrecv"
 )
 
@@ -182,6 +188,7 @@ func (p *Peer) Inbound() bool {
 }
 
 func newPeer(conn *conn, protocols []Protocol) *Peer {
+	// 根据匹配找到当前peer支持的protomap
 	protomap := matchProtocols(protocols, conn.caps, conn)
 	p := &Peer{
 		rw:       conn,
@@ -199,6 +206,7 @@ func (p *Peer) Log() log.Logger {
 	return p.log
 }
 
+// peer的启动 启动了两个goroutine线程。一个是读取，一个是执行ping操作。
 func (p *Peer) run() (remoteRequested bool, err error) {
 	var (
 		writeStart = make(chan struct{}, 1)
@@ -362,6 +370,7 @@ func (p *Peer) startProtocols(writeStart <-chan struct{}, writeErr chan<- error)
 			rw = newMsgEventer(rw, p.events, p.ID(), proto.Name)
 		}
 		p.log.Trace(fmt.Sprintf("Starting protocol %s/%d", proto.Name, proto.Version))
+		// 为每个协议都开启一个goroutine. 调用其run方法。
 		go func() {
 			err := proto.Run(p, rw)
 			if err == nil {
