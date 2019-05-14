@@ -42,6 +42,11 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
+/**
+server对象主要完成的工作把之前介绍的所有组件组合在一起。 使用rlpx.go来处理加密链路。 使用discover来处理节点发现和查找。 使用dial来生成和连接需要连接的节点。 使用peer对象来处理每个连接。
+
+server启动了一个listenLoop来监听和接收新的连接。 启动一个run的goroutine来调用dialstate生成新的dial任务并进行连接。 goroutine之间使用channel来进行通讯和配合。
+ */
 const (
 	defaultDialTimeout = 15 * time.Second
 
@@ -447,17 +452,21 @@ func (srv *Server) Start() (err error) {
 		return err
 	}
 	if srv.ListenAddr != "" {
+		// 开启TCP监听。
 		if err := srv.setupListening(); err != nil {
 			return err
 		}
 	}
+	// 开启UDP监听
 	if err := srv.setupDiscovery(); err != nil {
 		return err
 	}
 
 	dynPeers := srv.maxDialedConns()
+	// 创建 dialState
 	dialer := newDialState(srv.localnode.ID(), srv.StaticNodes, srv.BootstrapNodes, srv.ntab, dynPeers, srv.NetRestrict)
 	srv.loopWG.Add(1)
+	// 启动goroutine 来处理程序。
 	go srv.run(dialer)
 	return nil
 }
