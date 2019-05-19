@@ -88,6 +88,7 @@ type ServiceConstructor func(ctx *ServiceContext) (Service, error)
 //
 // • Restart logic is not required as the node will create a fresh instance
 // every time a service is started.
+// 服务的定义， eth其实就是一个服务。
 type Service interface {
 	// Protocols retrieves the P2P protocols the service wishes to start.
 	Protocols() []p2p.Protocol

@@ -344,6 +344,7 @@ func (p *peer) Handshake(network uint64, td *big.Int, head common.Hash, genesis 
 		})
 	}()
 	go func() {
+		// 检查对端返回的各种情况
 		errc <- p.readStatus(network, &status, genesis)
 	}()
 	timeout := time.NewTimer(handshakeTimeout)

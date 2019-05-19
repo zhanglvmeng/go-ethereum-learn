@@ -1462,13 +1462,16 @@ func SetDashboardConfig(ctx *cli.Context, cfg *dashboard.Config) {
 }
 
 // RegisterEthService adds an Ethereum client to the stack.
+// 以太坊协议是通过node的Register 方法注入的。
 func RegisterEthService(stack *node.Node, cfg *eth.Config) {
 	var err error
+	// // Download only the headers and terminate afterwards
 	if cfg.SyncMode == downloader.LightSync {
 		err = stack.Register(func(ctx *node.ServiceContext) (node.Service, error) {
 			return les.New(ctx, cfg)
 		})
 	} else {
+		// 全节点 FastSync and FullSync
 		err = stack.Register(func(ctx *node.ServiceContext) (node.Service, error) {
 			fullNode, err := eth.New(ctx, cfg)
 			if fullNode != nil && cfg.LightServ > 0 {

@@ -78,6 +78,7 @@ type LightEthereum struct {
 	wg sync.WaitGroup
 }
 
+// 注册以太坊轻节点。
 func New(ctx *node.ServiceContext, config *eth.Config) (*LightEthereum, error) {
 	chainDb, err := ctx.OpenDatabase("lightchaindata", config.DatabaseCache, config.DatabaseHandles, "eth/db/chaindata/")
 	if err != nil {

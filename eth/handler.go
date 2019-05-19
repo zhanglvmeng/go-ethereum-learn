@@ -105,6 +105,7 @@ type ProtocolManager struct {
 
 // NewProtocolManager returns a new Ethereum sub protocol manager. The Ethereum sub protocol manages peers capable
 // with the Ethereum network.
+// 创建以太坊协议。
 func NewProtocolManager(config *params.ChainConfig, mode downloader.SyncMode, networkID uint64, mux *event.TypeMux, txpool txPool, engine consensus.Engine, blockchain *core.BlockChain, chaindb ethdb.Database, whitelist map[uint64]common.Hash) (*ProtocolManager, error) {
 	// Create the protocol manager with the base fields
 	manager := &ProtocolManager{
@@ -147,6 +148,9 @@ func NewProtocolManager(config *params.ChainConfig, mode downloader.SyncMode, ne
 			Version: version,
 			Length:  ProtocolLengths[i],
 			Run: func(p *p2p.Peer, rw p2p.MsgReadWriter) error {
+				// 当p2p 的server启动时，会主动找节点连接，或者被其他的节点连接。 连接的过程是首先进行加密信道的握手，然后进行协议的握手。最后为
+				// 每个协议启动run方法 来把控制交给最终的协议。
+				// 这个run方法 首先创建了一个peer对象，然后调用了handler方法来处理这个peer。
 				peer := manager.newPeer(int(version), p, rw)
 				select {
 				case manager.newPeerCh <- peer:
@@ -172,11 +176,15 @@ func NewProtocolManager(config *params.ChainConfig, mode downloader.SyncMode, ne
 		return nil, errIncompatibleConfig
 	}
 	// Construct the different synchronisation mechanisms
+	// downloader 负责从其他的peer 来同步自身数据
+	// downloader 是全链同步工具
 	manager.downloader = downloader.New(mode, manager.checkpointNumber, chaindb, manager.eventMux, blockchain, nil, manager.removePeer)
+
 
 	validator := func(header *types.Header) error {
 		return engine.VerifyHeader(blockchain, header, true)
 	}
+	// 返回区块高度的函数
 	heighter := func() uint64 {
 		return blockchain.CurrentBlock().NumberU64()
 	}
@@ -189,6 +197,8 @@ func NewProtocolManager(config *params.ChainConfig, mode downloader.SyncMode, ne
 		atomic.StoreUint32(&manager.acceptTxs, 1) // Mark initial sync done on any fetcher import
 		return manager.blockchain.InsertChain(blocks)
 	}
+	// 生成一个fetcher
+	// fetcher 负责积累来自各个peer的区块通知，并安排进行检索。
 	manager.fetcher = fetcher.New(blockchain.GetBlockByHash, validator, manager.BroadcastBlock, heighter, inserter, manager.removePeer)
 
 	return manager, nil
@@ -217,16 +227,25 @@ func (pm *ProtocolManager) Start(maxPeers int) {
 	pm.maxPeers = maxPeers
 
 	// broadcast transactions
+	// 广播交易的通道。txsch 会作为txpool 的TxPreEvent 订阅通道。
+	// txPool有了这种消息会通知这个txCh.广播交易的goroutine 会把这个消息广播出去。
 	pm.txsCh = make(chan core.NewTxsEvent, txChanSize)
+	// 消息的回执
 	pm.txsSub = pm.txpool.SubscribeNewTxsEvent(pm.txsCh)
+	// 启动广播的goroutine
 	go pm.txBroadcastLoop()
 
 	// broadcast mined blocks
+	// 订阅挖矿的消息。当新的block被挖出来的时候会产生消息。
+	// 这个消息跟上面的那个订阅消息采用了两种不同的模式，
 	pm.minedBlockSub = pm.eventMux.Subscribe(core.NewMinedBlockEvent{})
+	// 挖矿广播 goroutine 当挖出来的时候，需要尽快的广播到网络上面去。
 	go pm.minedBroadcastLoop()
 
 	// start sync handlers
+	// 同步器负责周期性地与网络同步，下载散列和块以及处理通知处理程序。
 	go pm.syncer()
+	// txsyncLoop负责每个新连接的初始事务同步。 当新的peer出现时，我们转发所有当前待处理的事务。 为了最小化出口带宽使用，我们一次只发送一个小包。
 	go pm.txsyncLoop()
 }
 
@@ -261,6 +280,7 @@ func (pm *ProtocolManager) newPeer(pv int, p *p2p.Peer, rw p2p.MsgReadWriter) *p
 
 // handle is the callback invoked to manage the life cycle of an eth peer. When
 // this function terminates, the peer is disconnected.
+// handle是一个回调方法，用来管理eth的peer的生命周期管理。 当这个方法退出的时候，peer的连接也会断开。
 func (pm *ProtocolManager) handle(p *peer) error {
 	// Ignore maxPeers if this is a trusted peer
 	if pm.peers.Len() >= pm.maxPeers && !p.Peer.Info().Network.Trusted {
@@ -276,6 +296,7 @@ func (pm *ProtocolManager) handle(p *peer) error {
 		number  = head.Number.Uint64()
 		td      = pm.blockchain.GetTd(hash, number)
 	)
+	// td是total difficult 。 head是当前的区块头，Genesis是创世区块的信息。只有创世区块相同才能握手成功。
 	if err := p.Handshake(pm.networkID, td, hash, genesis.Hash()); err != nil {
 		p.Log().Debug("Ethereum handshake failed", "err", err)
 		return err
@@ -283,7 +304,7 @@ func (pm *ProtocolManager) handle(p *peer) error {
 	if rw, ok := p.rw.(*meteredMsgReadWriter); ok {
 		rw.Init(p.version)
 	}
-	// Register the peer locally
+	// Register the peer locally 把peer注册到本地
 	if err := pm.peers.Register(p); err != nil {
 		p.Log().Error("Ethereum peer registration failed", "err", err)
 		return err
@@ -291,11 +312,13 @@ func (pm *ProtocolManager) handle(p *peer) error {
 	defer pm.removePeer(p.id)
 
 	// Register the peer in the downloader. If the downloader considers it banned, we disconnect
+	// 把peer注册到Downloader
 	if err := pm.downloader.RegisterPeer(p.id, p.version, p); err != nil {
 		return err
 	}
 	// Propagate existing transactions. new transactions appearing
 	// after this will be sent via broadcasts.
+	// 在连接刚建立时，把当前pending的交易发送给对方。
 	pm.syncTransactions(p)
 
 	// If we have a trusted CHT, reject all peers below that (avoid fast sync eclipse)
@@ -324,6 +347,7 @@ func (pm *ProtocolManager) handle(p *peer) error {
 		}
 	}
 	// Handle incoming messages until the connection is torn down
+	// 主循环， 处理进入的消息。
 	for {
 		if err := pm.handleMsg(p); err != nil {
 			p.Log().Debug("Ethereum message handling failed", "err", err)
@@ -349,10 +373,11 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 	switch {
 	case msg.Code == StatusMsg:
 		// Status messages should never arrive after the handshake
+		// 只发生在handshake阶段。
 		return errResp(ErrExtraStatusMsg, "uncontrolled status message")
 
 	// Block header query, collect the requested headers and reply
-	case msg.Code == GetBlockHeadersMsg:
+	case msg.Code == GetBlockHeadersMsg: // 接收到请求区块头的信息，会根据请求返回区块头信息。
 		// Decode the complex header query
 		var query getBlockHeadersData
 		if err := msg.Decode(&query); err != nil {
@@ -439,7 +464,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		}
 		return p.SendBlockHeaders(headers)
 
-	case msg.Code == BlockHeadersMsg:
+	case msg.Code == BlockHeadersMsg: // 接收到了getblockHeadersMsg的应答
 		// A batch of headers arrived to one of our previous requests
 		var headers []*types.Header
 		if err := msg.Decode(&headers); err != nil {
@@ -492,7 +517,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			}
 		}
 
-	case msg.Code == GetBlockBodiesMsg:
+	case msg.Code == GetBlockBodiesMsg: // block body的请求
 		// Decode the retrieval message
 		msgStream := rlp.NewStream(msg.Payload, uint64(msg.Size))
 		if _, err := msgStream.List(); err != nil {
@@ -519,7 +544,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		}
 		return p.SendBlockBodiesRLP(bodies)
 
-	case msg.Code == BlockBodiesMsg:
+	case msg.Code == BlockBodiesMsg: // block body 请求对应的响应。
 		// A batch of block bodies arrived to one of our previous requests
 		var request blockBodiesData
 		if err := msg.Decode(&request); err != nil {
@@ -545,7 +570,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			}
 		}
 
-	case p.version >= eth63 && msg.Code == GetNodeDataMsg:
+	case p.version >= eth63 && msg.Code == GetNodeDataMsg: // 对端的版本是eth63 而且是请求NodeData
 		// Decode the retrieval message
 		msgStream := rlp.NewStream(msg.Payload, uint64(msg.Size))
 		if _, err := msgStream.List(); err != nil {
@@ -572,7 +597,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		}
 		return p.SendNodeData(data)
 
-	case p.version >= eth63 && msg.Code == NodeDataMsg:
+	case p.version >= eth63 && msg.Code == NodeDataMsg: // 对端的版本是eth63 对应请求NodeData 的响应
 		// A batch of node state data arrived to one of our previous requests
 		var data [][]byte
 		if err := msg.Decode(&data); err != nil {
@@ -630,7 +655,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			log.Debug("Failed to deliver receipts", "err", err)
 		}
 
-	case msg.Code == NewBlockHashesMsg:
+	case msg.Code == NewBlockHashesMsg: // 新区块hash信息
 		var announces newBlockHashesData
 		if err := msg.Decode(&announces); err != nil {
 			return errResp(ErrDecode, "%v: %v", msg, err)
@@ -650,7 +675,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			pm.fetcher.Notify(p.id, block.Hash, block.Number, time.Now(), p.RequestOneHeader, p.RequestBodies)
 		}
 
-	case msg.Code == NewBlockMsg:
+	case msg.Code == NewBlockMsg: // 新区块信息。
 		// Retrieve and decode the propagated block
 		var request newBlockData
 		if err := msg.Decode(&request); err != nil {
@@ -682,7 +707,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			}
 		}
 
-	case msg.Code == TxMsg:
+	case msg.Code == TxMsg: // 交易信息返回。 在我们没用同步完成之前不会接收交易信息。
 		// Transactions arrived, make sure we have a valid and fresh chain to handle them
 		if atomic.LoadUint32(&pm.acceptTxs) == 0 {
 			break
@@ -767,6 +792,7 @@ func (pm *ProtocolManager) BroadcastTxs(txs types.Transactions) {
 }
 
 // Mined broadcast loop
+// 挖矿广播 当收到订阅的事件的时候，把新挖到的矿广播出去。
 func (pm *ProtocolManager) minedBroadcastLoop() {
 	// automatically stops if unsubscribe
 	for obj := range pm.minedBlockSub.Chan() {
@@ -777,6 +803,8 @@ func (pm *ProtocolManager) minedBroadcastLoop() {
 	}
 }
 
+// 广播交易
+// txBroadcastLoop 在start的时候启动的goroutine。 txCh在txpool接收到一条合法的交易的时候会往这个上面写入事件。 然后把交易广播给所有的peers
 func (pm *ProtocolManager) txBroadcastLoop() {
 	for {
 		select {

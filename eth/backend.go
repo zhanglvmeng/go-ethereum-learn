@@ -60,36 +60,37 @@ type LesServer interface {
 }
 
 // Ethereum implements the Ethereum full node service.
+// 以太坊协议的数据结构
 type Ethereum struct {
-	config *Config
+	config *Config // 配置
 
 	// Channel for shutting down the service
 	shutdownChan chan bool // Channel for shutting down the Ethereum
 
 	// Handlers
-	txPool          *core.TxPool
-	blockchain      *core.BlockChain
-	protocolManager *ProtocolManager
-	lesServer       LesServer
+	txPool          *core.TxPool // 交易池
+	blockchain      *core.BlockChain // 区块链
+	protocolManager *ProtocolManager // 协议管理
+	lesServer       LesServer // 轻量级客户端服务器
 
 	// DB interfaces
 	chainDb ethdb.Database // Block chain database
 
 	eventMux       *event.TypeMux
-	engine         consensus.Engine
-	accountManager *accounts.Manager
+	engine         consensus.Engine // 一致性引擎
+	accountManager *accounts.Manager // 账号管理
 
 	bloomRequests chan chan *bloombits.Retrieval // Channel receiving bloom data retrieval requests
 	bloomIndexer  *core.ChainIndexer             // Bloom indexer operating during block imports
 
-	APIBackend *EthAPIBackend
+	APIBackend *EthAPIBackend // 提供给RPC服务使用的API后端
 
-	miner     *miner.Miner
-	gasPrice  *big.Int
-	etherbase common.Address
+	miner     *miner.Miner // 矿工
+	gasPrice  *big.Int // 节点接收的gasPrice的最小值
+	etherbase common.Address // 矿工地址
 
-	networkID     uint64
-	netRPCService *ethapi.PublicNetAPI
+	networkID     uint64 // 网络ID testnet 是0， mainnet 是 1
+	netRPCService *ethapi.PublicNetAPI // RPC的服务
 
 	lock sync.RWMutex // Protects the variadic fields (e.g. gas price and etherbase)
 }
@@ -101,6 +102,7 @@ func (s *Ethereum) AddLesServer(ls LesServer) {
 
 // New creates a new Ethereum object (including the
 // initialisation of the common Ethereum object)
+// 创建一个新的以太坊对象 （常见的以太坊 object）
 func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 	// Ensure configuration values are compatible and sane
 	if config.SyncMode == downloader.LightSync {
@@ -120,10 +122,12 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 	log.Info("Allocated trie memory caches", "clean", common.StorageSize(config.TrieCleanCache)*1024*1024, "dirty", common.StorageSize(config.TrieDirtyCache)*1024*1024)
 
 	// Assemble the Ethereum object
+	// 创建levelDB. 打开或者新建chaindata目录。
 	chainDb, err := ctx.OpenDatabase("chaindata", config.DatabaseCache, config.DatabaseHandles, "eth/db/chaindata/")
 	if err != nil {
 		return nil, err
 	}
+	// 设置创世区块。 如果db里面已经有创世区块，则从数据库中取出私链。或者从代码里面获取默认值。
 	chainConfig, genesisHash, genesisErr := core.SetupGenesisBlockWithOverride(chainDb, config.Genesis, config.ConstantinopleOverride)
 	if _, ok := genesisErr.(*params.ConfigCompatError); genesisErr != nil && !ok {
 		return nil, genesisErr
@@ -135,10 +139,10 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 		chainDb:        chainDb,
 		eventMux:       ctx.EventMux,
 		accountManager: ctx.AccountManager,
-		engine:         CreateConsensusEngine(ctx, chainConfig, &config.Ethash, config.MinerNotify, config.MinerNoverify, chainDb),
+		engine:         CreateConsensusEngine(ctx, chainConfig, &config.Ethash, config.MinerNotify, config.MinerNoverify, chainDb), // 一致性引擎。
 		shutdownChan:   make(chan bool),
-		networkID:      config.NetworkId,
-		gasPrice:       config.MinerGasPrice,
+		networkID:      config.NetworkId, // 网络ID 用来区分网络： 测试网络为0， 主网为1.
+		gasPrice:       config.MinerGasPrice, // 可以通过配置 --gasprice 客户端接纳的交易的gasprice最小值。 如果小于这个值那么节点被丢弃。
 		etherbase:      config.Etherbase,
 		bloomRequests:  make(chan chan *bloombits.Retrieval),
 		bloomIndexer:   NewBloomIndexer(chainDb, params.BloomBitsBlocks, params.BloomConfirms),
@@ -173,6 +177,7 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 			TrieTimeLimit:       config.TrieTimeout,
 		}
 	)
+	// 使用数据库创建区块链。
 	eth.blockchain, err = core.NewBlockChain(chainDb, cacheConfig, chainConfig, eth.engine, vmConfig, eth.shouldPreserve)
 	if err != nil {
 		return nil, err
@@ -184,19 +189,19 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 		rawdb.WriteChainConfig(chainDb, genesisHash, chainConfig)
 	}
 	eth.bloomIndexer.Start(eth.blockchain)
-
+	// 创建交易池。 用来存储本地或者网络上接收到的交易。
 	if config.TxPool.Journal != "" {
 		config.TxPool.Journal = ctx.ResolvePath(config.TxPool.Journal)
 	}
 	eth.txPool = core.NewTxPool(config.TxPool, chainConfig, eth.blockchain)
-
+	// 创建协议管理器。
 	if eth.protocolManager, err = NewProtocolManager(chainConfig, config.SyncMode, config.NetworkId, eth.eventMux, eth.txPool, eth.engine, eth.blockchain, chainDb, config.Whitelist); err != nil {
 		return nil, err
 	}
-
+	// 创建矿工
 	eth.miner = miner.New(eth, chainConfig, eth.EventMux(), eth.engine, config.MinerRecommit, config.MinerGasFloor, config.MinerGasCeil, eth.isLocalBlock)
 	eth.miner.SetExtra(makeExtraData(config.MinerExtraData))
-
+	// 用于给RPC 调用提供后端支持。
 	eth.APIBackend = &EthAPIBackend{ctx.ExtRPCEnabled(), eth, nil}
 	gpoParams := config.GPO
 	if gpoParams.Default == nil {
@@ -257,6 +262,7 @@ func CreateConsensusEngine(ctx *node.ServiceContext, chainConfig *params.ChainCo
 
 // APIs return the collection of RPC services the ethereum package offers.
 // NOTE, some of these services probably need to be moved to somewhere else.
+// APIs 返回服务暴露的RPC方法。
 func (s *Ethereum) APIs() []rpc.API {
 	apis := ethapi.GetAPIs(s.APIBackend)
 
@@ -482,6 +488,7 @@ func (s *Ethereum) Downloader() *downloader.Downloader { return s.protocolManage
 
 // Protocols implements node.Service, returning all the currently configured
 // network protocols to start.
+// 服务的Protocols 方法会返回服务提供了哪些P2P的Protocol。 返回协议管理器里面所有subProtocols。
 func (s *Ethereum) Protocols() []p2p.Protocol {
 	if s.lesServer == nil {
 		return s.protocolManager.SubProtocols
@@ -492,6 +499,7 @@ func (s *Ethereum) Protocols() []p2p.Protocol {
 // Start implements node.Service, starting all internal goroutines needed by the
 // Ethereum protocol implementation.
 func (s *Ethereum) Start(srvr *p2p.Server) error {
+	// 启动布隆过滤器请求处理的goroutine
 	// Start the bloom bits servicing goroutines
 	s.startBloomHandlers(params.BloomBitsBlocks)
 
@@ -507,6 +515,7 @@ func (s *Ethereum) Start(srvr *p2p.Server) error {
 		maxPeers -= s.config.LightPeers
 	}
 	// Start the networking layer and the light server if requested
+	// 启动协议管理器
 	s.protocolManager.Start(maxPeers)
 	if s.lesServer != nil {
 		s.lesServer.Start(srvr)

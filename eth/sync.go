@@ -62,6 +62,8 @@ func (pm *ProtocolManager) syncTransactions(p *peer) {
 // connection. When a new peer appears, we relay all currently pending
 // transactions. In order to minimise egress bandwidth usage, we send
 // the transactions in small packs to one peer at a time.
+// 负责每个新连接的初始事务同步。
+// 当新peer出现的时候，转发所有待处理的事务。
 func (pm *ProtocolManager) txsyncLoop() {
 	var (
 		pending = make(map[enode.ID]*txsync)
@@ -131,6 +133,7 @@ func (pm *ProtocolManager) txsyncLoop() {
 
 // syncer is responsible for periodically synchronising with the network, both
 // downloading hashes and blocks as well as handling the announcement handler.
+// 周期性地同步网络。 包含 下载区块 以及处理通知程序。
 func (pm *ProtocolManager) syncer() {
 	// Start and ensure cleanup of sync mechanisms
 	pm.fetcher.Start()
@@ -161,6 +164,7 @@ func (pm *ProtocolManager) syncer() {
 }
 
 // synchronise tries to sync up our local block chain with a remote peer.
+// 跟远端的某个peer同步 本地区块信息。
 func (pm *ProtocolManager) synchronise(peer *peer) {
 	// Short circuit if no peers are available
 	if peer == nil {
@@ -210,6 +214,7 @@ func (pm *ProtocolManager) synchronise(peer *peer) {
 		// scenario will most often crop up in private and hackathon networks with
 		// degenerate connectivity, but it should be healthy for the mainnet too to
 		// more reliably update peers or the local TD state.
+		// 告知其他peer， 当前这个peer的状态。
 		go pm.BroadcastBlock(head, false)
 	}
 }
